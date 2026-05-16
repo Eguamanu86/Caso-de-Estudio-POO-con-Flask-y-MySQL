@@ -14,26 +14,15 @@ Desarrollar un sistema de gestión de reservas de laboratorios universitarios ap
 
 ## 1. Enunciado del Problema
 
-### 1.1 Contexto General
+### 1.1 Contexto
 
-La Universidad Estatal de Milagro (UNEMI) cuenta con varios laboratorios de cómputo distribuidos en diferentes bloques del campus. Estos laboratorios son utilizados por docentes de diversas carreras para dictar clases prácticas, talleres y evaluaciones que requieren el uso de equipos informáticos especializados.
-
-Actualmente, el proceso de reserva de laboratorios se realiza de manera manual: el docente llena un formulario físico, lo entrega a la coordinación académica, y el coordinador verifica manualmente la disponibilidad en una hoja de cálculo compartida. Este proceso genera múltiples problemas:
-
-- **Conflictos de horario no detectados a tiempo:** dos docentes han llegado a presentarse simultáneamente al mismo laboratorio porque la hoja de cálculo no se actualizó correctamente.
-- **Falta de trazabilidad:** no existe registro confiable de quién aprobó una reserva, cuándo fue aprobada ni por qué fue rechazada.
-- **Proceso lento:** el docente debe esperar respuesta manual del coordinador, lo que puede tardar uno o dos días hábiles.
-- **Inconsistencias de datos:** reservas canceladas que siguen apareciendo como activas, o reservas activas que nadie recuerda haber aprobado.
-
-La coordinación académica ha decidido digitalizar este proceso a través de una **API REST** que centralice la gestión de reservas, aplique las reglas de negocio automáticamente y garantice la integridad de los datos.
+La UNEMI gestiona reservas de laboratorios de cómputo de forma manual (formulario físico + hoja de cálculo), lo que genera conflictos de horario, falta de trazabilidad y respuestas lentas. Se requiere una **API REST** que centralice la gestión y aplique las reglas de negocio automáticamente.
 
 ---
 
-### 1.2 Descripción del Sistema a Desarrollar
+### 1.2 Reglas de Negocio
 
-Se debe diseñar e implementar el módulo de **Gestión de Reservas de Laboratorio**, que permita a los docentes solicitar el uso de un laboratorio para una fecha y bloque horario específicos, y a los coordinadores académicos gestionar (aprobar, rechazar o cancelar) dichas solicitudes.
-
-El sistema debe cumplir con las siguientes condiciones de negocio, que el estudiante debe identificar como **invariantes del dominio**:
+El sistema debe garantizar las siguientes reglas (**invariantes del dominio**):
 
 **Reglas sobre el tiempo:**
 - Una reserva no puede realizarse para una fecha anterior al día actual. El pasado no puede reservarse.
@@ -75,15 +64,6 @@ La docente Ana García necesita el Laboratorio A el martes 10 de junio de 2026 d
 **Escenario 2 — Conflicto de horario:**
 El docente Luis Romero intenta reservar el mismo Laboratorio A para el 10 de junio de 2026 de 09:00 a 11:00. El sistema detecta que ese bloque se solapa con la reserva ya existente de Ana García (08:00–10:00), ya que 09:00 < 10:00 y 11:00 > 08:00. El sistema rechaza la operación con un mensaje claro de conflicto. Luis debe elegir otro laboratorio u otro horario.
 
-**Escenario 3 — Cancelación por el docente:**
-Ana García decide que no necesita el laboratorio y cancela su reserva antes de que sea atendida. Como la reserva está en estado `PENDIENTE`, el sistema permite la cancelación. La reserva pasa a `CANCELADA`. A partir de ese momento, el horario queda disponible para otras reservas.
-
-**Escenario 4 — Reserva en el pasado:**
-Un docente intenta crear una reserva para ayer por error. El sistema detecta que la fecha es anterior a la fecha actual y rechaza la operación inmediatamente, sin consultar disponibilidad.
-
-**Escenario 5 — Borrado lógico:**
-El coordinador elimina una reserva errónea del sistema. El registro no desaparece de la base de datos: se marca con la fecha de eliminación. Cualquier consulta normal filtra los registros con esa marca y no los muestra, pero el área de auditoría puede consultarlos.
-
 ---
 
 ---
@@ -122,58 +102,160 @@ El coordinador elimina una reserva errónea del sistema. El registro no desapare
 
 ---
 
-## 3. Proceso de Abstracción
+## 3. Proceso de Abstracción y Análisis
+
+> **Clave de abstracción:** Si un concepto del enunciado tiene **datos propios** y **comportamiento propio**, es candidato a clase. Los sustantivos → clases o atributos; los verbos → métodos.
+
+---
 
 ### 3.1 Identificación de Conceptos del Dominio
 
-| Concepto                        | Tipo                   | Responsabilidad                                              |
-|---------------------------------|------------------------|--------------------------------------------------------------|
-| `ReservaLaboratorio`            | Entidad de dominio     | Concentra reglas de negocio e invariantes                    |
-| `RangoHorario`                  | Objeto de valor        | Representa el bloque de tiempo; inmutable                    |
-| `EstadoReserva`                 | Enumeración            | Define los estados válidos del ciclo de vida                 |
-| `ValidadorDisponibilidadService`| Servicio de dominio    | Valida que no existan conflictos de horario                  |
-| `ReservaRepository`             | Interfaz (contrato)    | Desacopla dominio de persistencia                            |
-| `MySQLReservaRepository`        | Implementación         | Implementa el repositorio sobre MySQL                        |
-| `ReservaDAO`                    | Objeto de acceso       | Centraliza SQL, mapeo y manejo de conexiones                 |
-| `ConnectionPool`                | Infraestructura        | Gestiona el pool de conexiones a MySQL                       |
-| `ReservaService`                | Aplicación             | Orquesta casos de uso coordinando dominio e infraestructura  |
-| `ReservaController`             | Interfaz REST          | Recibe peticiones HTTP y delega al servicio                  |
+| Concepto                         | Tipo                    | Capa arquitectónica | Responsabilidad principal                                   |
+|----------------------------------|-------------------------|---------------------|-------------------------------------------------------------|
+| `EstadoReserva`                  | Enumeración             | Dominio             | Define los valores válidos del ciclo de vida                |
+| `RangoHorario`                   | Objeto de valor         | Dominio             | Encapsula y valida el bloque horario; inmutable             |
+| `ReservaLaboratorio`             | Entidad de dominio      | Dominio             | Concentra datos y reglas de negocio de una reserva          |
+| `ReservaRepository`              | Interfaz (contrato)     | Dominio             | Desacopla dominio de la tecnología de persistencia          |
+| `ReservaService`                 | Servicio de aplicación  | Aplicación          | Orquesta los casos de uso del sistema                       |
+| `ReservaDAO`                     | Objeto de acceso a datos| Infraestructura     | Centraliza la ejecución de SQL y el mapeo de resultados     |
+| `ConnectionPool`                 | Componente de infra     | Infraestructura     | Gestiona y reutiliza conexiones a MySQL                     |
+| `MySQLReservaRepository`         | Implementación          | Infraestructura     | Implementa `ReservaRepository` usando `ReservaDAO`          |
+| `ReservaController`              | Controlador REST        | API / Interfaz      | Traduce peticiones HTTP en llamadas al servicio             |
 
-### 3.2 Aplicación de Técnicas POO
+---
 
-1. **Encapsulamiento**
-   La entidad `ReservaLaboratorio` controla sus propios cambios de estado: `aprobar()`, `cancelar()`, `actualizarHorario()`. El estado nunca se modifica desde afuera directamente.
+### 3.2 Análisis por Clase: Atributos y Métodos
 
-2. **Abstracción**
-   `ReservaRepository` es una interfaz abstracta. El servicio de aplicación no conoce cómo se implementa la persistencia.
+A partir de los conceptos identificados, se definen los atributos y métodos de cada clase. Este análisis es la base directa del diagrama UML.
 
-3. **Herencia**
-   Se define una clase base `Entity` con los atributos comunes: `id`, `created_at`, `updated_at`. `ReservaLaboratorio` hereda de ella.
+---
 
-4. **Polimorfismo**
-   `ReservaRepository` permite intercambiar implementaciones: `MySQLReservaRepository` en producción, un repositorio en memoria para pruebas unitarias.
+#### `EstadoReserva` — Enumeración
 
-5. **Composición**
-   `ReservaLaboratorio` compone `RangoHorario`. El rango no tiene sentido fuera del contexto de la reserva.
+| Valor        | Significado                                                       |
+|--------------|-------------------------------------------------------------------|
+| `PENDIENTE`  | Creada; en espera de revisión del coordinador                     |
+| `APROBADA`   | Aprobada; laboratorio asignado                                    |
+| `RECHAZADA`  | Denegada; bloque horario libre                                    |
+| `CANCELADA`  | Cancelada voluntariamente; registro conservado                    |
 
-6. **Agregación**
-   `ReservaService` agrega `ReservaRepository` y `ValidadorDisponibilidadService` por inyección de dependencias.
+**Transiciones permitidas:**
 
-7. **Asociación**
-   `ReservaLaboratorio` se asocia con `Laboratorio` y `Docente` a través de identificadores (FK conceptual).
+```
+PENDIENTE ──aprobar()──► APROBADA ──cancelar()──► CANCELADA
+PENDIENTE ──rechazar()─► RECHAZADA
+PENDIENTE ──cancelar()─► CANCELADA
+```
 
-8. **Dependencia**
-   Los controladores dependen del servicio de aplicación, nunca del DAO directamente.
+---
 
-### 3.3 Invariantes de Dominio
+#### `RangoHorario` — Objeto de Valor (inmutable)
 
-| Regla                                              | Alcance          |
-|----------------------------------------------------|------------------|
-| `fecha_reserva >= hoy`                             | Al crear         |
-| `hora_inicio < hora_fin`                           | Siempre          |
-| `estado` ∈ {PENDIENTE, APROBADA, RECHAZADA, CANCELADA} | Siempre     |
-| Si `estado = APROBADA` → `aprobada_en` ≠ nulo      | Al aprobar       |
-| No existe otra reserva en el mismo lab, fecha y bloque | Al crear/actualizar |
+| Atributo      | Tipo   | Descripción                            |
+|---------------|--------|----------------------------------------|
+| `hora_inicio` | `time` | Inicio del bloque (formato `HH:MM:SS`) |
+| `hora_fin`    | `time` | Fin del bloque (formato `HH:MM:SS`)    |
+
+| Método          | Retorno     | Descripción                                    |
+|-----------------|-------------|------------------------------------------------|
+| `es_valido()`   | `bool`      | `True` si `hora_inicio < hora_fin`             |
+| `solapa(otro)`  | `bool`      | `True` si se superpone con otro `RangoHorario` |
+| `duracion()`    | `timedelta` | Duración del bloque horario (fin − inicio)     |
+
+---
+
+#### `ReservaLaboratorio` — Entidad Principal
+
+| Atributo         | Tipo               | Descripción                                  |
+|------------------|--------------------|----------------------------------------------|
+| `id`             | `int \| None`      | Asignado por la BD al persistir              |
+| `laboratorio_id` | `int`              | Laboratorio reservado                        |
+| `docente_id`     | `int`              | Docente solicitante                          |
+| `curso_codigo`   | `str`              | Código del curso (ej: `INF-202`)             |
+| `fecha_reserva`  | `date`             | Fecha de uso                                 |
+| `rango`          | `RangoHorario`     | Bloque horario (composición)                 |
+| `estado`         | `EstadoReserva`    | Ciclo de vida; inicia siempre en `PENDIENTE` |
+| `aprobada_en`    | `datetime \| None` | Registrado automáticamente al aprobar        |
+
+| Método       | Precondición                     | Efecto                                      |
+|--------------|----------------------------------|---------------------------------------------|
+| `aprobar()`  | `estado == PENDIENTE`            | `estado = APROBADA`; registra `aprobada_en` |
+| `rechazar()` | `estado == PENDIENTE`            | `estado = RECHAZADA`                        |
+| `cancelar()` | `estado ∈ {PENDIENTE, APROBADA}` | `estado = CANCELADA`                        |
+
+> El atributo `estado` **nunca** se asigna directamente. Solo cambia a través de estos métodos (encapsulamiento).
+
+---
+
+#### `ReservaRepository` — Interfaz (contrato de persistencia)
+
+| Método                | Retorno                      | Descripción                                       |
+|-----------------------|------------------------------|---------------------------------------------------|
+| `crear(reserva)`      | `int`                        | Persiste y retorna el ID generado                 |
+| `obtener_por_id(id)`  | `ReservaLaboratorio \| None` | Busca por ID activo                               |
+| `listar(filtros)`     | `List`                       | Lista activas con filtros opcionales              |
+| `actualizar(reserva)` | `void`                       | Persiste cambios sobre una reserva existente      |
+| `eliminar(id)`        | `void`                       | Borrado lógico                                    |
+| `existe_conflicto(…)` | `bool`                       | Detecta solapamiento de bloques horarios          |
+
+---
+
+#### `ReservaService` — Servicio de Aplicación
+
+| Atributo | Tipo                | Descripción                                 |
+|----------|---------------------|---------------------------------------------|
+| `repo`   | `ReservaRepository` | Inyectado; no depende de MySQL directamente |
+
+| Método                        | Descripción                                              |
+|-------------------------------|----------------------------------------------------------|
+| `crear_reserva(dto)`          | Valida rango, duración, fecha y conflicto; crea entidad y persiste |
+| `obtener_reserva(id)`         | Retorna reserva o lanza `DomainError`                    |
+| `listar_reservas(filtros)`    | Delega al repositorio                                    |
+| `actualizar_reserva(id, dto)` | Valida rango, duración, fecha y conflicto; aplica transición de estado |
+| `eliminar_reserva(id)`        | Verifica existencia y delega borrado lógico              |
+
+---
+
+#### `ReservaController` — Controlador REST
+
+| Método HTTP | Ruta                    | Servicio llamado       | Código    |
+|-------------|-------------------------|------------------------|-----------|
+| `POST`      | `/api/v1/reservas`      | `crear_reserva`        | 201 / 400 |
+| `GET`       | `/api/v1/reservas`      | `listar_reservas`      | 200       |
+| `GET`       | `/api/v1/reservas/{id}` | `obtener_reserva`      | 200 / 404 |
+| `PUT`       | `/api/v1/reservas/{id}` | `actualizar_reserva`   | 200 / 400 |
+| `DELETE`    | `/api/v1/reservas/{id}` | `eliminar_reserva`     | 200 / 404 |
+
+---
+
+### 3.3 Aplicación de Técnicas POO
+
+| # | Técnica              | Cómo se aplica en este sistema                                                                                  |
+|---|----------------------|-----------------------------------------------------------------------------------------------------------------|
+| 1 | **Encapsulamiento**  | `ReservaLaboratorio` controla sus transiciones de estado mediante métodos (`aprobar()`, `rechazar()`, `cancelar()`). El atributo `estado` no se modifica directamente desde fuera. |
+| 2 | **Abstracción**      | `ReservaRepository` es una interfaz abstracta. El servicio no sabe si la persistencia usa MySQL, PostgreSQL o memoria. |
+| 3 | **Herencia**         | No se usa herencia de clase concreta para auditoría. `id` es atributo directo de `ReservaLaboratorio`. Los campos `created_at` / `updated_at` son gestionados por MySQL (`DEFAULT CURRENT_TIMESTAMP`) y no forman parte del modelo de dominio. |
+| 4 | **Polimorfismo**     | Cualquier implementación de `ReservaRepository` puede reemplazar a `MySQLReservaRepository` sin cambiar el servicio. En pruebas se usa un repositorio en memoria. |
+| 5 | **Composición**      | `ReservaLaboratorio` compone `RangoHorario`. El rango no tiene identidad ni sentido fuera de la reserva que lo contiene. |
+| 6 | **Agregación**       | `ReservaService` agrega `ReservaRepository` por inyección de dependencias. El servicio no crea sus dependencias; las recibe. La validación de conflictos se delega al repositorio mediante `existe_conflicto()`. |
+| 7 | **Asociación**       | `ReservaLaboratorio` se asocia con `Laboratorio` y `Docente` a través de identificadores (FK conceptual), sin composición directa. |
+| 8 | **Dependencia**      | `ReservaController` depende de `ReservaService`; `ReservaService` depende de `ReservaRepository`. Ninguna capa salta niveles. |
+
+---
+
+### 3.4 Invariantes de Dominio
+
+Las invariantes son condiciones que el sistema debe garantizar **siempre**, independientemente del camino de ejecución. Si alguna se viola, se lanza `DomainError`.
+
+| Invariante                                                        | Cuándo se verifica       | Quién la verifica           |
+|-------------------------------------------------------------------|--------------------------|-----------------------------|
+| `fecha_reserva >= fecha actual`                                   | Al crear / actualizar    | `ReservaService`            |
+| `hora_inicio < hora_fin`                                          | Siempre                  | `RangoHorario.es_valido()`  |
+| `1 hora ≤ duración ≤ 4 horas`                                     | Al crear / actualizar    | `ReservaService`            |
+| `estado ∈ {PENDIENTE, APROBADA, RECHAZADA, CANCELADA}`            | Siempre                  | `EstadoReserva` (enum)      |
+| Si `estado = APROBADA` → `aprobada_en ≠ None`                     | Al aprobar               | `ReservaLaboratorio.aprobar()` |
+| No existe reserva activa con mismo lab, fecha y bloque solapado   | Al crear / actualizar    | `ReservaService` (vía `repo.existe_conflicto()`) |
+| Una reserva `RECHAZADA` o `CANCELADA` no puede volver a `PENDIENTE` | En toda transición     | `ReservaLaboratorio` (métodos) |
 
 ---
 
@@ -181,13 +263,11 @@ El coordinador elimina una reserva errónea del sistema. El registro no desapare
 
 | Relación             | Clases involucradas                                         | Descripción                                                           |
 |----------------------|-------------------------------------------------------------|-----------------------------------------------------------------------|
-| Herencia             | `Entity` ← `ReservaLaboratorio`                             | La entidad principal hereda atributos de trazabilidad                |
 | Composición          | `ReservaLaboratorio` ◆── `RangoHorario`                     | El rango horario no existe sin la reserva                            |
 | Implementación       | `ReservaRepository` ◁── `MySQLReservaRepository`            | El repositorio MySQL implementa el contrato de la interfaz            |
 | Asociación           | `MySQLReservaRepository` ──► `ReservaDAO`                   | El repositorio usa el DAO para ejecutar SQL                           |
 | Asociación           | `ReservaDAO` ──► `ConnectionPool`                           | El DAO obtiene conexiones del pool                                    |
 | Agregación           | `ReservaService` ◇── `ReservaRepository`                   | El servicio usa el repositorio, pero no lo posee                      |
-| Agregación           | `ReservaService` ◇── `ValidadorDisponibilidadService`       | El servicio agrega el validador por inyección                         |
 | Dependencia          | `ReservaController` ──► `ReservaService`                    | El controlador usa el servicio solo para delegar peticiones           |
 
 ---
@@ -209,26 +289,24 @@ enum EstadoReserva {
   CANCELADA
 }
 
-class Entity {
-  # id: int
-  # createdAt: datetime
-  # updatedAt: datetime
-}
-
-class RangoHorario <<value object>> {
-  - horaInicio: time
-  - horaFin: time
-  + esValido(): bool
+class RangoHorario {
+  - hora_inicio: time
+  - hora_fin: time
+  + es_valido(): bool
   + solapa(otro: RangoHorario): bool
+  + duracion(): timedelta
 }
+note bottom of RangoHorario : value object\n(frozen=True)
 
 class ReservaLaboratorio {
-  - laboratorioId: int
-  - docenteId: int
-  - cursoCodigo: string
-  - fechaReserva: date
+  # id: int [0..1]
+  - laboratorio_id: int
+  - docente_id: int
+  - curso_codigo: str
+  - fecha_reserva: date
+  - rango: RangoHorario
   - estado: EstadoReserva
-  - aprobadaEn: datetime
+  - aprobada_en: datetime [0..1]
   + aprobar(): void
   + rechazar(): void
   + cancelar(): void
@@ -236,38 +314,32 @@ class ReservaLaboratorio {
 
 interface ReservaRepository {
   + crear(reserva): int
-  + obtenerPorId(id): ReservaLaboratorio
-  + listar(filtros): List
+  + obtener_por_id(id): ReservaLaboratorio
+  + listar(filtros): list
   + actualizar(reserva): void
   + eliminar(id): void
-  + existeConflicto(...): bool
+  + existe_conflicto(lab, fecha, rango, excluir): bool
 }
 
 class MySQLReservaRepository {
 }
 
-class ValidadorDisponibilidadService {
-  + validar(laboratorioId, fecha, rango): void
-}
-
 class ReservaService {
-  + crearReserva(dto): int
-  + obtenerReserva(id): ReservaLaboratorio
-  + listarReservas(filtros): List
-  + actualizarReserva(id, dto): void
-  + eliminarReserva(id): void
+  - repo: ReservaRepository
+  + crear_reserva(dto): int
+  + obtener_reserva(id): ReservaLaboratorio
+  + listar_reservas(filtros): list
+  + actualizar_reserva(id, dto): void
+  + eliminar_reserva(id): void
 }
 
 class ReservaController {
   + create(): Response
-  + getById(id): Response
+  + get_by_id(id): Response
   + list(): Response
   + update(id): Response
   + delete(id): Response
 }
-
-' Herencia
-Entity <|-- ReservaLaboratorio
 
 ' Composicion: RangoHorario no existe sin ReservaLaboratorio
 ReservaLaboratorio *-- RangoHorario
@@ -278,12 +350,8 @@ ReservaLaboratorio --> EstadoReserva
 ' Implementacion de interfaz
 MySQLReservaRepository ..|> ReservaRepository
 
-' Agregacion: el servicio usa repositorio y validador por inyeccion
+' Agregacion: el servicio recibe el repositorio por inyeccion
 ReservaService o-- ReservaRepository
-ReservaService o-- ValidadorDisponibilidadService
-
-' Dependencia: el validador consulta el repositorio
-ValidadorDisponibilidadService ..> ReservaRepository
 
 ' Dependencia: el controlador delega en el servicio
 ReservaController ..> ReservaService
@@ -313,16 +381,13 @@ skinparam sequenceMessageAlign center
 actor Docente
 participant ":ReservaController" as Controller
 participant ":ReservaService" as Service
-participant ":ValidadorDisponibilidad" as Validador
 participant ":ReservaRepository" as Repo
 
 Docente -> Controller : POST /reservas (datos)
-Controller -> Service : crearReserva(dto)
+Controller -> Service : crear_reserva(dto)
 
-Service -> Validador : validar(labId, fecha, rango)
-Validador -> Repo : existeConflicto(labId, fecha, rango)
-Repo --> Validador : false
-Validador --> Service : ok
+Service -> Repo : existe_conflicto(labId, fecha, inicio, fin)
+Repo --> Service : false
 
 Service -> Repo : crear(reserva)
 Repo --> Service : id = 42
@@ -345,13 +410,13 @@ participant ":ReservaRepository" as Repo
 participant ":ReservaLaboratorio" as Reserva
 
 Coordinador -> Controller : PUT /reservas/42 {estado: APROBADA}
-Controller -> Service : actualizarReserva(42, dto)
+Controller -> Service : actualizar_reserva(42, dto)
 
-Service -> Repo : obtenerPorId(42)
+Service -> Repo : obtener_por_id(42)
 Repo --> Service : reserva
 
 Service -> Reserva : aprobar()
-note right : registra aprobadaEn = ahora()
+note right : valida PENDIENTE; registra aprobada_en
 Reserva --> Service : ok
 
 Service -> Repo : actualizar(reserva)
@@ -372,31 +437,3 @@ Controller --> Coordinador : 200 OK
 - [ ] Justificar la elección de SQL parametrizado en lugar de un ORM.
 - [ ] Describir qué invariante del dominio impide crear reservas en el pasado.
 - [ ] Proponer una regla de negocio adicional (ejemplo: máximo 4 horas por docente por día).
-
----
-
-## 8. Extensiones Sugeridas
-
-> Las tablas `laboratorios` y `docentes` ya están definidas en el archivo [02-modelado-clases-vs-tablas-fisicas.md](02-modelado-clases-vs-tablas-fisicas.md). Las extensiones siguientes van más allá del alcance del laboratorio base.
-
-- Validar la capacidad del laboratorio al crear una reserva (usando `laboratorios.capacidad`).
-- Tabla `reservas_eventos` para auditoría de cambios de estado (Event Sourcing básico).
-- Paginación y ordenamiento configurable en el listado de reservas.
-- Tests unitarios con repositorio en memoria (sin base de datos real).
-- Tests de integración con MySQL en Docker.
-- Patrón Unit of Work para agrupar múltiples operaciones en una sola transacción.
-
----
-
-## 9. Conclusiones Didácticas
-
-Este caso de estudio permite practicar POO de forma integral:
-
-| Etapa                        | Actividad                                         |
-|------------------------------|---------------------------------------------------|
-| Enunciado → Abstracción       | Identificar entidades, relaciones e invariantes  |
-| Abstracción → UML             | Modelar clases, relaciones y secuencias          |
-| UML → Código                 | Implementar capas desacopladas en Python/Flask   |
-| Código → Comportamiento       | Observar el sistema via API REST                 |
-
-La clave pedagógica es que POO no es simplemente "usar clases", sino modelar correctamente responsabilidades, relaciones e invariantes del dominio de negocio.

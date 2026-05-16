@@ -1,0 +1,25 @@
+@startuml
+skinparam sequenceMessageAlign center
+
+actor Coordinador
+participant ":ReservaController" as Controller
+participant ":ReservaService" as Service
+participant ":ReservaRepository" as Repo
+participant ":ReservaLaboratorio" as Reserva
+
+Coordinador -> Controller : PUT /reservas/42 {estado: APROBADA}
+Controller -> Service : actualizar_reserva(42, dto)
+
+Service -> Repo : obtener_por_id(42)
+Repo --> Service : reserva
+
+Service -> Reserva : aprobar()
+note right : valida PENDIENTE; registra aprobada_en
+Reserva --> Service : ok
+
+Service -> Repo : actualizar(reserva)
+Repo --> Service : ok
+
+Service --> Controller : ok
+Controller --> Coordinador : 200 OK
+@enduml

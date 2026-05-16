@@ -1,0 +1,20 @@
+@startuml
+skinparam sequenceMessageAlign center
+
+actor Docente
+participant ":ReservaController" as Controller
+participant ":ReservaService" as Service
+participant ":ReservaRepository" as Repo
+
+Docente -> Controller : POST /reservas (datos)
+Controller -> Service : crear_reserva(dto)
+
+Service -> Repo : existe_conflicto(labId, fecha, inicio, fin)
+Repo --> Service : false
+
+Service -> Repo : crear(reserva)
+Repo --> Service : id = 42
+
+Service --> Controller : 42
+Controller --> Docente : 201 Created {id: 42}
+@enduml

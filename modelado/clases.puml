@@ -1,0 +1,79 @@
+@startuml
+skinparam classAttributeIconSize 0
+skinparam classFontSize 12
+skinparam linetype ortho
+
+enum EstadoReserva {
+  PENDIENTE
+  APROBADA
+  RECHAZADA
+  CANCELADA
+}
+
+class RangoHorario {
+  - hora_inicio: time
+  - hora_fin: time
+  + es_valido(): bool
+  + solapa(otro: RangoHorario): bool
+  + duracion(): timedelta
+}
+note bottom of RangoHorario : value object\n(frozen=True)
+
+class ReservaLaboratorio {
+  # id: int [0..1]
+  - laboratorio_id: int
+  - docente_id: int
+  - curso_codigo: str
+  - fecha_reserva: date
+  - rango: RangoHorario
+  - estado: EstadoReserva
+  - aprobada_en: datetime [0..1]
+  + aprobar(): void
+  + rechazar(): void
+  + cancelar(): void
+}
+
+interface ReservaRepository {
+  + crear(reserva): int
+  + obtener_por_id(id): ReservaLaboratorio
+  + listar(filtros): list
+  + actualizar(reserva): void
+  + eliminar(id): void
+  + existe_conflicto(lab, fecha, rango, excluir): bool
+}
+
+class MySQLReservaRepository {
+}
+
+class ReservaService {
+  - repo: ReservaRepository
+  + crear_reserva(dto): int
+  + obtener_reserva(id): ReservaLaboratorio
+  + listar_reservas(filtros): list
+  + actualizar_reserva(id, dto): void
+  + eliminar_reserva(id): void
+}
+
+class ReservaController {
+  + create(): Response
+  + get_by_id(id): Response
+  + list(): Response
+  + update(id): Response
+  + delete(id): Response
+}
+
+' Composicion: RangoHorario no existe sin ReservaLaboratorio
+ReservaLaboratorio *-- RangoHorario
+
+' Asociacion de uso
+ReservaLaboratorio --> EstadoReserva
+
+' Implementacion de interfaz
+MySQLReservaRepository ..|> ReservaRepository
+
+' Agregacion: el servicio recibe el repositorio por inyeccion
+ReservaService o-- ReservaRepository
+
+' Dependencia: el controlador delega en el servicio
+ReservaController ..> ReservaService
+@enduml
